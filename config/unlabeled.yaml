@@ -1,0 +1,24 @@
+# Total number of labeled samples
+data: 
+  num_labeled: 250
+
+steps:
+  eval: 1024
+  epochs: 250
+  test_epoch: 10
+
+hp:
+  bs: 64
+  wd: 5e-4
+  lr: 0.
+
+ref:
+  τ: 0.333
+  μ: 7
+  α: 0.05
+  order: 2
+  particles: 4
+
+
+seed: 0
+num_workers: 4
