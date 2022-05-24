@@ -3,7 +3,7 @@ data:
   num_labeled: 250
 
 steps:
-  eval: 1024
+  updates: 1024
   epochs: 250
   test_epoch: 10
 

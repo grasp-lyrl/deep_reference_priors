@@ -36,7 +36,7 @@ def train_ref_prior(cfg, dataloaders):
         net.get_opt_params(wd=cfg.hp.wd / cfg.ref.particles),
         lr=cfg.hp.lr, momentum=0.9, nesterov= True )
     scheduler = get_cosine_schedule_with_warmup(
-        optimizer, 0, cfg.steps.eval * cfg.steps.epochs)
+        optimizer, 0, cfg.steps.updates * cfg.steps.epochs)
     scaler = amp.GradScaler(enabled=True)
 
     for epoch in range(cfg.steps.epochs):
@@ -50,7 +50,7 @@ def train_ref_prior(cfg, dataloaders):
         loss_run, ce_run, mask_run = 0.0, 0.0, 0.0
         h_y_run, h_yx_run = 0., 0. 
 
-        for idx in range(cfg.eval_step):
+        for idx in range(cfg.steps.updates):
             optimizer.zero_grad(set_to_none=True)
 
             inputs, target_x, iters = get_minibatch(iters,

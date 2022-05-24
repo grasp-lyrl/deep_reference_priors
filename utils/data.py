@@ -73,7 +73,7 @@ def split_dataset(cfg, labels):
     unlabeled_idx = np.setdiff1d(unlabeled_idx, labeled_idx)
 
     # Duplicate indices to run dataloader till eval step
-    num_expand_x = math.ceil(cfg.batch_size * cfg.eval_step / cfg.data.num_labeled)
+    num_expand_x = math.ceil(cfg.batch_size * cfg.steps.updates / cfg.data.num_labeled)
     labeled_idx = np.hstack([labeled_idx for _ in range(num_expand_x)])
     np.random.shuffle(labeled_idx)
 
