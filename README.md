@@ -12,3 +12,9 @@ finite number of particles to span the prediction space.
 
 
 Parts of this code are adapted from https://github.com/kekmodel/FixMatch-pytorch
+
+# Setup
+
+```
+conda create -n <environment-name> --file setup.yml
+```
