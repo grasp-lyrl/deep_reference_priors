@@ -14,21 +14,21 @@ def get_dataloaders(cfg):
     labeled_trainloader = DataLoader(
         datasets[0],
         sampler=RandomSampler(datasets[0]),
-        batch_size=cfg.batch_size,
+        batch_size=cfg.hp.bs,
         num_workers=cfg.num_workers,
         drop_last=True)
 
     unlabeled_trainloader = DataLoader(
         datasets[1],
         sampler=RandomSampler(datasets[1]),
-        batch_size=cfg.batch_size*cfg.ref.μ,
+        batch_size=cfg.hp.bs * cfg.ref.μ,
         num_workers=cfg.num_workers,
         drop_last=True)
 
     test_loader = DataLoader(
         datasets[2],
         sampler=SequentialSampler(datasets[2]),
-        batch_size=cfg.batch_size,
+        batch_size=cfg.hp.bs,
         num_workers=cfg.num_workers)
 
     return (labeled_trainloader, unlabeled_trainloader, test_loader)
@@ -73,7 +73,7 @@ def split_dataset(cfg, labels):
     unlabeled_idx = np.setdiff1d(unlabeled_idx, labeled_idx)
 
     # Duplicate indices to run dataloader till eval step
-    num_expand_x = math.ceil(cfg.batch_size * cfg.steps.updates / cfg.data.num_labeled)
+    num_expand_x = math.ceil(cfg.hp.bs * cfg.steps.updates / cfg.data.num_labeled)
     labeled_idx = np.hstack([labeled_idx for _ in range(num_expand_x)])
     np.random.shuffle(labeled_idx)
 

@@ -8,7 +8,8 @@ from utils.data import get_dataloaders
 from omegaconf import OmegaConf
 
 from utils.net import create_net
-from utils.runner import get_shapes, log_metrics
+from utils.runner import get_shapes, log_metrics, get_minibatch
+from utils.runner import get_cosine_schedule_with_warmup, compute_log_prob
 
 
 def setup(seed):
@@ -34,17 +35,17 @@ def train_ref_prior(cfg, dataloaders):
 
     optimizer = optim.SGD(
         net.get_opt_params(wd=cfg.hp.wd / cfg.ref.particles),
-        lr=cfg.hp.lr, momentum=0.9, nesterov= True )
+        lr=cfg.hp.lr * cfg.ref.particles, momentum=0.9, nesterov= True )
     scheduler = get_cosine_schedule_with_warmup(
         optimizer, 0, cfg.steps.updates * cfg.steps.epochs)
     scaler = amp.GradScaler(enabled=True)
 
     for epoch in range(cfg.steps.epochs):
 
-        if (epoch % cfg.steps.test_epoch == 0) or (epoch == cfg.steps.epochs - 1):
-            log_metrics(net, test_loader)
+        if (epoch % cfg.steps.test_epoch == 0):
+            log_metrics(epoch, net, test_loader)
             
-        iters = (iter(lab_loader), iter(unlab_loader))
+        iters = [iter(lab_loader), iter(unlab_loader)]
         net.train()
 
         loss_run, ce_run, mask_run = 0.0, 0.0, 0.0
@@ -54,42 +55,44 @@ def train_ref_prior(cfg, dataloaders):
             optimizer.zero_grad(set_to_none=True)
 
             inputs, target_x, iters = get_minibatch(iters,
-                                                    dataloaders[0:1],
+                                                    dataloaders[0:2],
                                                     cfg.ref.particles)
             inputs_x, inputs_u_w, inputs_u_s = inputs
             batch_size = inputs_x.size(0)
             
-            with amp.autocast(enabled=cfg.fp16):
+            with amp.autocast(enabled=True):
+                # import ipdb; ipdb.set_trace()
 
                 all_inputs = torch.cat((inputs_x, inputs_u_w, inputs_u_s))
                 log_px, log_pw, log_ps = compute_log_prob(net, all_inputs, batch_size)
+                log_pw_d = log_pw.detach()
 
                 # 1) Cross-entrpoy Loss
-                ce_loss = - torch.mean(torch.sum(log_px * targets_x, dim=1))
+                ce_loss = - torch.mean(torch.sum(log_px * target_x, dim=1))
 
                 # 2) Reference prior objective
 
                 # 2a) Compute H_yx
                 # Apply Jensen's inequality here
-                p_ave = cfg.ref.τ * log_pw.exp() + (1 - cfg.ref.τ) * log_ps.exp()
-                log_p_ave = cfg.ref.τ * log_pw  + (1 - cfg.ref.τ) * log_ps
-                entropy = - (p_ave * log_p_ave).sum(1)     
+                p_avg = cfg.ref.τ * log_pw_d.exp() + (1 - cfg.ref.τ) * log_ps.exp()
+                # log_p_avg = cfg.ref.τ * log_pw  + (1 - cfg.ref.τ) * log_ps
+                log_p_avg = torch.log(p_avg)
+
+                entropy = - (p_avg * log_p_avg).sum(1)     
                 # Samples contribute to the loss only if their predictions are confident
-                max_probs, _ = torch.max(log_pw.exp(), dim=1)
-                mask = max_probs.ge(cfg.threshold)    
+                max_probs, _ = torch.max(log_pw_d.exp(), dim=1)
+                mask = max_probs.ge(cfg.ref.threshold)    
                 h_yx = (entropy * mask).mean()
 
                 # 2b) Compute H_y
-                # Same as log_pw (but with gradients)
-                ln_p_y = log_softmax(logits_u_w, dim=1)
-                ln_p_y = torch.transpose(ln_p_y, 1, 2)
-                bs =  batch_size // cfg.ref.order
-                ln_p_y = torch.reshape(ln_p_y, (cfg.ref.order, bs, cfg.ref.particles, 10))
+                bs =  inputs_u_w.size(0) // cfg.ref.order
+                log_pw = torch.transpose(log_pw, 1, 2)
+                log_pw = torch.reshape(log_pw, (cfg.ref.order, bs, cfg.ref.particles, 10))
                 # Sum over all combinations of n particles
-                ln_p_yn = [ln_p_y[i].view(shapes[i]) for i in range(cfg.ref.order)]
+                ln_p_yn = [log_pw[i].view(reshapes[i]) for i in range(cfg.ref.order)]
                 ln_p_yn = sum(ln_p_yn).view(bs, cfg.ref.particles, -1)
                 # Weights particles by prior and sum
-                pi_ln_p = (ln_p_yn.exp() * prior.view(1, -1, 1)).sum(dim=1)
+                pi_ln_p = (ln_p_yn.exp() *  net.get_prior().view(1, -1, 1)).sum(dim=1)
                 h_y = - (pi_ln_p * torch.log(pi_ln_p + 1e-12)).sum(1).mean() 
                 h_y = h_y / cfg.ref.order
 
@@ -118,6 +121,7 @@ def train_ref_prior(cfg, dataloaders):
                 'masks':  mask_run/idx}
         print(info)
 
+    log_metrics("final_epoch", net, test_loader)
     torch.save(net.state_dict(), 'model.pth')
 
 

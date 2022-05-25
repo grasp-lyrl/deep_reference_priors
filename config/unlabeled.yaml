@@ -9,10 +9,11 @@ steps:
 
 hp:
   bs: 64
-  wd: 5e-4
-  lr: 0.
+  wd: 0.0005
+  lr: 0.03
 
 ref:
+  threshold: 0.95
   τ: 0.333
   μ: 7
   α: 0.05
