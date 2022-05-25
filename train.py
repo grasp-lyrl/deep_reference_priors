@@ -62,6 +62,7 @@ def train_ref_prior(cfg, dataloaders):
             batch_size = inputs_x.size(0)
             
             with amp.autocast(enabled=True):
+
                 all_inputs = torch.cat((inputs_x, inputs_u_w, inputs_u_s))
                 log_px, log_pw, log_ps = compute_log_prob(net, all_inputs, batch_size)
                 log_pw_d = log_pw.detach()
