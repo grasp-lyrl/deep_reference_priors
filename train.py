@@ -30,14 +30,15 @@ def read_config(fname):
 def train_ref_prior(cfg, dataloaders):
     net = create_net(cfg)
     lab_loader, unlab_loader, test_loader = dataloaders
-    
     reshapes = get_shapes(cfg, nlabs=10)
 
     optimizer = optim.SGD(
         net.get_opt_params(wd=cfg.hp.wd / cfg.ref.particles),
-        lr=cfg.hp.lr * cfg.ref.particles, momentum=0.9, nesterov= True )
+        lr=cfg.hp.lr * cfg.ref.particles, momentum=0.9, nesterov= True)
+
     scheduler = get_cosine_schedule_with_warmup(
         optimizer, 0, cfg.steps.updates * cfg.steps.epochs)
+
     scaler = amp.GradScaler(enabled=True)
 
     for epoch in range(cfg.steps.epochs):
@@ -61,8 +62,6 @@ def train_ref_prior(cfg, dataloaders):
             batch_size = inputs_x.size(0)
             
             with amp.autocast(enabled=True):
-                # import ipdb; ipdb.set_trace()
-
                 all_inputs = torch.cat((inputs_x, inputs_u_w, inputs_u_s))
                 log_px, log_pw, log_ps = compute_log_prob(net, all_inputs, batch_size)
                 log_pw_d = log_pw.detach()
@@ -75,8 +74,8 @@ def train_ref_prior(cfg, dataloaders):
                 # 2a) Compute H_yx
                 # Apply Jensen's inequality here
                 p_avg = cfg.ref.τ * log_pw_d.exp() + (1 - cfg.ref.τ) * log_ps.exp()
-                # log_p_avg = cfg.ref.τ * log_pw  + (1 - cfg.ref.τ) * log_ps
-                log_p_avg = torch.log(p_avg)
+                log_p_avg = cfg.ref.τ * log_pw_d  + (1 - cfg.ref.τ) * log_ps
+                # log_p_avg = torch.log(p_avg)
 
                 entropy = - (p_avg * log_p_avg).sum(1)     
                 # Samples contribute to the loss only if their predictions are confident
@@ -85,7 +84,7 @@ def train_ref_prior(cfg, dataloaders):
                 h_yx = (entropy * mask).mean()
 
                 # 2b) Compute H_y
-                bs =  inputs_u_w.size(0) // cfg.ref.order
+                bs = inputs_u_w.size(0) // cfg.ref.order
                 log_pw = torch.transpose(log_pw, 1, 2)
                 log_pw = torch.reshape(log_pw, (cfg.ref.order, bs, cfg.ref.particles, 10))
                 # Sum over all combinations of n particles
@@ -97,7 +96,8 @@ def train_ref_prior(cfg, dataloaders):
                 h_y = h_y / cfg.ref.order
 
                 # 3) Compute the final loss
-                loss = ce_loss + (1./( 1 - cfg.ref.τ**2 )) * (h_yx - cfg.ref.α * h_y) 
+                info_loss =  (h_yx - cfg.ref.α * h_y) 
+                loss = ce_loss + (1. / (1 - cfg.ref.τ**2)) * info_loss
 
                 scaler.scale(loss).backward()
                 scaler.step(optimizer)
