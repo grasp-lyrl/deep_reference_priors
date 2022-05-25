@@ -76,8 +76,6 @@ def train_ref_prior(cfg, dataloaders):
                 # Apply Jensen's inequality here
                 p_avg = cfg.ref.τ * log_pw_d.exp() + (1 - cfg.ref.τ) * log_ps.exp()
                 log_p_avg = cfg.ref.τ * log_pw_d  + (1 - cfg.ref.τ) * log_ps
-                # log_p_avg = torch.log(p_avg)
-
                 entropy = - (p_avg * log_p_avg).sum(1)     
                 # Samples contribute to the loss only if their predictions are confident
                 max_probs, _ = torch.max(log_pw_d.exp(), dim=1)
@@ -91,7 +89,7 @@ def train_ref_prior(cfg, dataloaders):
                 # Sum over all combinations of n particles
                 ln_p_yn = [log_pw[i].view(reshapes[i]) for i in range(cfg.ref.order)]
                 ln_p_yn = sum(ln_p_yn).view(bs, cfg.ref.particles, -1)
-                # Weights particles by prior and sum
+                # Weights particles by prior
                 pi_ln_p = (ln_p_yn.exp() *  net.get_prior().view(1, -1, 1)).sum(dim=1)
                 h_y = - (pi_ln_p * torch.log(pi_ln_p + 1e-12)).sum(1).mean() 
                 h_y = h_y / cfg.ref.order
