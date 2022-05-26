@@ -8,11 +8,13 @@ networks) which are trained to span the prediction space.
 
 This method is competitive with other SoTA semi-supervised learning methods.
 
-![](./assets/ref_prior_table.png =x300)
-
+<p align="center">
+<img src="./assets/ref_prior_table.png" width="600">
+</p>
+  
 ## Setup and Usage
 
-```
+```bash
 conda create -n ref_prior --file setup.yml
 conda activate ref_prior
 python train.py
