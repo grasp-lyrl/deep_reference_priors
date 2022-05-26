@@ -13,7 +13,7 @@ from torch.optim.lr_scheduler import LambdaLR
 
 def get_shapes(cfg, nlabs):
     """
-    Define a collection of shapes that makes h_yx calculation easier
+    Define a collection of shapes that makes h_y calculation easier
     """
     shapes = []
     bs = (cfg.ref.μ * cfg.hp.bs) // cfg.ref.order
@@ -68,7 +68,7 @@ def get_cosine_schedule_with_warmup(optimizer,
     return LambdaLR(optimizer, _lr_lambda, last_epoch)
 
 
-def get_train_objects(cfg):
+def get_train_objects(net, cfg):
     """
     Create objects for training neural net
     """
@@ -121,7 +121,7 @@ def compute_h_yx(log_pw_d, log_ps, cfg):
     return h_yx, mask
 
 
-def compute_hy(log_pw, log_ps, cfg, reshapes):
+def compute_h_y(log_pw, log_ps, prior, cfg, reshapes):
     """
     Compute h_y term in the reference prior objective
     """
@@ -132,7 +132,7 @@ def compute_hy(log_pw, log_ps, cfg, reshapes):
     ln_p_yn = [log_pw[i].view(reshapes[i]) for i in range(cfg.ref.order)]
     ln_p_yn = sum(ln_p_yn).view(bs, cfg.ref.particles, -1)
     # Weights particles by prior
-    pi_ln_p = (ln_p_yn.exp() *  net.get_prior().view(1, -1, 1)).sum(dim=1)
+    pi_ln_p = (ln_p_yn.exp() *  prior.view(1, -1, 1)).sum(dim=1)
     h_y = - (pi_ln_p * torch.log(pi_ln_p + 1e-12)).sum(1).mean() 
     h_y = h_y / cfg.ref.order
 

@@ -1,13 +1,16 @@
+import numpy as np
+import random
+import yaml
 import torch
 import torch.nn as nn
-import yaml
+import torch.cuda.amp as amp
 
 from utils.data import get_dataloaders
 from omegaconf import OmegaConf
 
 from utils.net import create_net
 from utils.runner import get_shapes, eval_and_log_metrics, get_minibatch
-from utils.runner import compute_h_yx, compute_hy, compute_log_prob
+from utils.runner import compute_h_yx, compute_h_y, compute_log_prob
 from utils.runner import get_train_objects
 
 
@@ -39,12 +42,12 @@ def train_ref_prior(cfg, dataloaders):
     # Create K neural nets which correspond to particles of the refernece prior.
     net = create_net(cfg)
 
-    # Pre-compute an object which is used for efficiently computing h_yx
+    # Pre-compute an object which is used for efficiently computing h_y
     reshapes = get_shapes(cfg, nlabs=10)
 
     lab_loader, unlab_loader, test_loader = dataloaders
     iters = [iter(lab_loader), iter(unlab_loader)]
-    optimizer, scheduler, scaler = get_train_objects(cfg)
+    optimizer, scheduler, scaler = get_train_objects(net, cfg)
 
     for epoch in range(cfg.steps.epochs):
 
@@ -73,11 +76,12 @@ def train_ref_prior(cfg, dataloaders):
                 all_inputs = torch.cat((inputs_x, inputs_u_w, inputs_u_s))
                 log_px, log_pw, log_ps = compute_log_prob(net, all_inputs, bs_x)
                 log_pw_d = log_pw.detach()  
+                prior = net.get_prior()
 
                 # Compute the loss function
                 ce_loss = - torch.mean(torch.sum(log_px * target_x, dim=1))
                 h_yx, mask = compute_h_yx(log_pw_d, log_ps, cfg)
-                h_y = compute_hy(low_pw, log_ps, cfg)
+                h_y = compute_h_y(log_pw, log_ps, prior, cfg, reshapes)
                 info_loss =  (h_yx - cfg.ref.α * h_y) 
 
                 # The 1/(1-τ^2) term is justified in the appendix
