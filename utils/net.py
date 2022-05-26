@@ -89,9 +89,7 @@ class NetworkBlock(nn.Module):
 
 class WideResNet(nn.Module):
     """
-    Wide-Resnet (https://arxiv.org/abs/1605.07146) for multiple tasks.
-    This implementation assumes all tasks have the same number of classes. 
-    See WideResNetMultiTask_v2 if you want to have multiple classes
+    Wide-Resnet (https://arxiv.org/abs/1605.07146)
     """
     def __init__(self,
                  depth: int,
@@ -280,5 +278,3 @@ def create_net(cfg):
     particles = ParticlesNet(WideResNet, resnet_args, cfg)
     net = EMA(particles, decay=0.999)
     return net
-
-

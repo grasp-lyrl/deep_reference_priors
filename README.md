@@ -1,20 +1,18 @@
 # Deep Reference priors
 
-Deep reference priors (https://arxiv.org/abs/2202.00187) are used to pre-train
-the weights of a neural network using unlabeled data. The theory of reference priors 
-dictates that the prior distribution is supported on a finite number of
-weights. Hence, we represent the prior as an ensemble of $K$ neural networks.
+[Deep Reference priors](https://arxiv.org/abs/2202.00187) pre-train the weights
+of a neural network with unlabeled data using the theory of reference priors.
+It allows the data to dominate the posterior rather than the choice of the
+prior. The prior is represented by a finite number of particles (or neural
+networks) which are trained to span the prediction space.
 
-Deep reference priors are trained based on the theory of reference priors which
-is an uninformative prior. It allows the data to dominate the posterior rather
-than the choice of the prior. Intuitively, Deep reference priors encourage a
-finite number of particles to span the prediction space.
+## Setup and Usage
 
+```
+conda create -n ref_prior --file setup.yml
+conda activate ref_prior
+python train.py
+```
 
+## Acknowledgements 
 Parts of this code are adapted from https://github.com/kekmodel/FixMatch-pytorch
-
-# Setup
-
-```
-conda create -n <environment-name> --file setup.yml
-```

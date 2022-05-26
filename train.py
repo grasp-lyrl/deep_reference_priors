@@ -1,6 +1,4 @@
 import torch
-import torch.cuda.amp as amp
-import torch.optim as optim
 import torch.nn as nn
 import yaml
 
@@ -8,11 +6,15 @@ from utils.data import get_dataloaders
 from omegaconf import OmegaConf
 
 from utils.net import create_net
-from utils.runner import get_shapes, log_metrics, get_minibatch
-from utils.runner import get_cosine_schedule_with_warmup, compute_log_prob
+from utils.runner import get_shapes, eval_and_log_metrics, get_minibatch
+from utils.runner import compute_h_yx, compute_hy, compute_log_prob
+from utils.runner import get_train_objects
 
 
 def setup(seed):
+    """
+    Setup pytorch and random seeds
+    """
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     np.random.seed(seed)
@@ -21,6 +23,9 @@ def setup(seed):
 
 
 def read_config(fname):
+    """
+    Read config from yaml file and print it
+    """
     with open(fname, "r") as stream:
         cfg = yaml.safe_load(stream)
     print(cfg)
@@ -28,74 +33,54 @@ def read_config(fname):
 
 
 def train_ref_prior(cfg, dataloaders):
+    """
+    Train the model on labeled + unlabeled data using Deep Reference priors
+    """
+    # Create K neural nets which correspond to particles of the refernece prior.
     net = create_net(cfg)
-    lab_loader, unlab_loader, test_loader = dataloaders
+
+    # Pre-compute an object which is used for efficiently computing h_yx
     reshapes = get_shapes(cfg, nlabs=10)
 
-    optimizer = optim.SGD(
-        net.get_opt_params(wd=cfg.hp.wd / cfg.ref.particles),
-        lr=cfg.hp.lr * cfg.ref.particles, momentum=0.9, nesterov= True)
-
-    scheduler = get_cosine_schedule_with_warmup(
-        optimizer, 0, cfg.steps.updates * cfg.steps.epochs)
-
-    scaler = amp.GradScaler(enabled=True)
+    lab_loader, unlab_loader, test_loader = dataloaders
+    iters = [iter(lab_loader), iter(unlab_loader)]
+    optimizer, scheduler, scaler = get_train_objects(cfg)
 
     for epoch in range(cfg.steps.epochs):
 
         if (epoch % cfg.steps.test_epoch == 0):
-            log_metrics(epoch, net, test_loader)
-            
-        iters = [iter(lab_loader), iter(unlab_loader)]
+            eval_and_log_metrics(epoch, net, test_loader)
+
+        # Metrics to track for every epoch
+        loss_run, ce_run, mask_run = 0, 0, 0
+        h_y_run, h_yx_run = 0, 0 
+
         net.train()
-
-        loss_run, ce_run, mask_run = 0.0, 0.0, 0.0
-        h_y_run, h_yx_run = 0., 0. 
-
         for idx in range(cfg.steps.updates):
             optimizer.zero_grad(set_to_none=True)
 
             inputs, target_x, iters = get_minibatch(iters,
                                                     dataloaders[0:2],
                                                     cfg.ref.particles)
+            # Fetch image from labeled dataset. Also fetch weak and strong
+            # augmentations of the same image from the unlabeled dataset
             inputs_x, inputs_u_w, inputs_u_s = inputs
-            batch_size = inputs_x.size(0)
+            bs_x = inputs_x.size(0)
             
             with amp.autocast(enabled=True):
 
+                # Forward prop: compute log-probabilities 
                 all_inputs = torch.cat((inputs_x, inputs_u_w, inputs_u_s))
-                log_px, log_pw, log_ps = compute_log_prob(net, all_inputs, batch_size)
-                log_pw_d = log_pw.detach()
+                log_px, log_pw, log_ps = compute_log_prob(net, all_inputs, bs_x)
+                log_pw_d = log_pw.detach()  
 
-                # 1) Cross-entrpoy Loss
+                # Compute the loss function
                 ce_loss = - torch.mean(torch.sum(log_px * target_x, dim=1))
-
-                # 2) Reference prior objective
-
-                # 2a) Compute H_yx
-                # Apply Jensen's inequality here
-                p_avg = cfg.ref.τ * log_pw_d.exp() + (1 - cfg.ref.τ) * log_ps.exp()
-                log_p_avg = cfg.ref.τ * log_pw_d  + (1 - cfg.ref.τ) * log_ps
-                entropy = - (p_avg * log_p_avg).sum(1)     
-                # Samples contribute to the loss only if their predictions are confident
-                max_probs, _ = torch.max(log_pw_d.exp(), dim=1)
-                mask = max_probs.ge(cfg.ref.threshold)    
-                h_yx = (entropy * mask).mean()
-
-                # 2b) Compute H_y
-                bs = inputs_u_w.size(0) // cfg.ref.order
-                log_pw = torch.transpose(log_pw, 1, 2)
-                log_pw = torch.reshape(log_pw, (cfg.ref.order, bs, cfg.ref.particles, 10))
-                # Sum over all combinations of n particles
-                ln_p_yn = [log_pw[i].view(reshapes[i]) for i in range(cfg.ref.order)]
-                ln_p_yn = sum(ln_p_yn).view(bs, cfg.ref.particles, -1)
-                # Weights particles by prior
-                pi_ln_p = (ln_p_yn.exp() *  net.get_prior().view(1, -1, 1)).sum(dim=1)
-                h_y = - (pi_ln_p * torch.log(pi_ln_p + 1e-12)).sum(1).mean() 
-                h_y = h_y / cfg.ref.order
-
-                # 3) Compute the final loss
+                h_yx, mask = compute_h_yx(log_pw_d, log_ps, cfg)
+                h_y = compute_hy(low_pw, log_ps, cfg)
                 info_loss =  (h_yx - cfg.ref.α * h_y) 
+
+                # The 1/(1-τ^2) term is justified in the appendix
                 loss = ce_loss + (1. / (1 - cfg.ref.τ**2)) * info_loss
 
                 scaler.scale(loss).backward()
@@ -105,7 +90,6 @@ def train_ref_prior(cfg, dataloaders):
             net.update_ema()
             scheduler.step()
 
-            # lr_scheduler is not used
             ce_run += ce_loss.item()
             loss_run += loss.item()
             h_yx_run += h_yx.item()
@@ -120,11 +104,12 @@ def train_ref_prior(cfg, dataloaders):
                 'masks':  mask_run/idx}
         print(info)
 
-    log_metrics("final_epoch", net, test_loader)
+    eval_and_log_metrics("final_epoch", net, test_loader)
     torch.save(net.state_dict(), 'model.pth')
 
 
 if __name__ == "__main__":
     cfg = read_config("./config/unlabeled.yaml")
+    setup(cfg.seed)
     dataloaders = get_dataloaders(cfg)
     train_ref_prior(cfg, dataloaders)
