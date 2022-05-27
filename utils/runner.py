@@ -103,9 +103,9 @@ def compute_log_prob(net, inputs, bs_x):
     return (log_px, log_pw, log_ps)
 
 
-def compute_h_yx(log_pw_d, log_ps, cfg):
+def compute_h_yw(log_pw_d, log_ps, cfg):
     """
-    Compute h_yx term in the reference prior objective
+    Compute h_yw term in the reference prior objective
     """
     log_p_avg = cfg.ref.τ * log_pw_d  + (1 - cfg.ref.τ) * log_ps
     p_avg = cfg.ref.τ * log_pw_d.exp() + (1 - cfg.ref.τ) * log_ps.exp()
@@ -116,9 +116,9 @@ def compute_h_yx(log_pw_d, log_ps, cfg):
     max_probs, _ = torch.max(log_pw_d.exp(), dim=1)
     mask = max_probs.ge(cfg.ref.threshold)    
 
-    h_yx = (entropy * mask).mean()
+    h_yw = (entropy * mask).mean()
 
-    return h_yx, mask
+    return h_yw, mask
 
 
 def compute_h_y(log_pw, log_ps, prior, cfg, reshapes):

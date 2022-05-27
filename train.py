@@ -10,7 +10,7 @@ from omegaconf import OmegaConf
 
 from utils.net import create_net
 from utils.runner import get_shapes, eval_and_log_metrics, get_minibatch
-from utils.runner import compute_h_yx, compute_h_y, compute_log_prob
+from utils.runner import compute_h_yw, compute_h_y, compute_log_prob
 from utils.runner import get_train_objects
 
 
@@ -56,7 +56,7 @@ def train_ref_prior(cfg, dataloaders):
 
         # Metrics to track for every epoch
         loss_run, ce_run, mask_run = 0, 0, 0
-        h_y_run, h_yx_run = 0, 0 
+        h_y_run, h_yw_run = 0, 0 
 
         net.train()
         for idx in range(cfg.steps.updates):
@@ -80,9 +80,9 @@ def train_ref_prior(cfg, dataloaders):
 
                 # Compute the loss function
                 ce_loss = - torch.mean(torch.sum(log_px * target_x, dim=1))
-                h_yx, mask = compute_h_yx(log_pw_d, log_ps, cfg)
+                h_yw, mask = compute_h_yw(log_pw_d, log_ps, cfg)
                 h_y = compute_h_y(log_pw, log_ps, prior, cfg, reshapes)
-                info_loss =  (h_yx - cfg.ref.α * h_y) 
+                info_loss =  (h_yw - cfg.ref.α * h_y) 
 
                 # The 1/(1-τ^2) term is justified in the appendix
                 loss = ce_loss + (1. / (1 - cfg.ref.τ**2)) * info_loss
@@ -96,7 +96,7 @@ def train_ref_prior(cfg, dataloaders):
 
             ce_run += ce_loss.item()
             loss_run += loss.item()
-            h_yx_run += h_yx.item()
+            h_yw_run += h_yw.item()
             h_y_run += h_y.item()
             mask_run += mask.sum().item()
 
@@ -104,7 +104,7 @@ def train_ref_prior(cfg, dataloaders):
                 'ce_loss': ce_run/idx,
                 'loss': loss_run/idx,
                 'H_y':  h_y_run/idx,
-                'H_yx':  h_yx_run/idx, 
+                'H_yw':  h_yw_run/idx, 
                 'masks':  mask_run/idx}
         print(info)
 
