@@ -1,6 +1,6 @@
 # Deep Reference priors
 
-[Deep Reference priors](https://arxiv.org/abs/2202.00187) pre-train the weights
+[Deep Reference Priors](https://arxiv.org/abs/2202.00187, ICML 2022) pre-train the weights
 of a neural network with unlabeled data, using the theory of reference priors.
 It allows the data to dominate the posterior rather than the choice of the
 prior. The prior is represented by a finite number of particles (or neural
